@@ -30,7 +30,7 @@ public:
 	void setFailover(string const & host, string const & port, string const & user, string const & pass);
 
 	bool isRunning() { return m_running; }
-	bool isConnected() { return m_connected && m_authorized; }
+	bool isConnected() { return m_connected; }
 	h256 currentHeaderHash() { return m_current.headerHash; }
 	bool current() { return m_current; }
 	unsigned waitState() { return m_waitState; }
@@ -52,7 +52,6 @@ private:
 
 	string m_worker; // eth-proxy only;
 
-	bool m_authorized;
 	bool m_connected;
 	bool m_running = true;
 

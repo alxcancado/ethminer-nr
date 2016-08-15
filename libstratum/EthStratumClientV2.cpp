@@ -44,7 +44,6 @@ EthStratumClientV2::EthStratumClientV2(GenericFarm<EthashProofOfWork> * f, Miner
 
 	p_active = &m_primary;
 
-	m_authorized = false;
 	m_connected = false;
 	m_maxRetries = retries;
 
@@ -80,8 +79,6 @@ void EthStratumClientV2::workLoop()
 		try {
 			if (!m_connected)
 			{
-				//m_io_service.run();
-				//boost::thread t(boost::bind(&boost::asio::io_service::run, &m_io_service));
 				connect();
 				
 			}
@@ -142,9 +139,7 @@ void EthStratumClientV2::connect()
 		if (!p_farm->isMining())
 		{
 			cnote << "Starting farm";
-			if (m_minerType == MinerType::CPU)
-				p_farm->start("cpu", false);
-			else if (m_minerType == MinerType::CL)
+			if (m_minerType == MinerType::CL)
 				p_farm->start("opencl", false);
 			else if (m_minerType == MinerType::CUDA)
 				p_farm->start("cuda", false);
@@ -192,10 +187,6 @@ void EthStratumClientV2::connect()
 void EthStratumClientV2::reconnect()
 {
 	m_sharesPending = 0;		// reset counter
-
-	//m_io_service.reset();
-	//m_socket.close(); // leads to crashes on Linux
-	m_authorized = false;
 	m_connected = false;
 		
 	if (!m_failover.host.empty())
@@ -235,7 +226,6 @@ void EthStratumClientV2::disconnect()
 		p_farm->stop();
 	}
 	m_socket.close();
-	//m_io_service.stop();
 }
 
 void EthStratumClientV2::processExtranonce(std::string& enonce)
@@ -291,7 +281,6 @@ void EthStratumClientV2::processReponse(Json::Value& responseObject)
 		}
 		else
 		{
-			m_authorized = true;
 			os << "{\"id\": 5, \"method\": \"eth_getWork\", \"params\": []}\n"; // not strictly required but it does speed up initialization
 			write(m_socket, m_requestBuffer);
 		}
@@ -300,14 +289,15 @@ void EthStratumClientV2::processReponse(Json::Value& responseObject)
 		// nothing to do...
 		break;
 	case 3:
-		m_authorized = responseObject.get("result", Json::Value::null).asBool();
-		if (!m_authorized)
+		if ( responseObject.get("result", Json::Value::null).asBool() )
 		{
-			cnote << "Worker not authorized:" << p_active->user;
-			disconnect();
-			return;
+			cnote << "Authorized worker " << p_active->user;
 		}
-		cnote << "Authorized worker " << p_active->user;
+		else
+		{
+			cwarn << "Worker not authorized:" << p_active->user;
+			disconnect();
+		}
 		break;
 	case 4:
 	case 6:
@@ -437,7 +427,6 @@ void EthStratumClientV2::processReponse(Json::Value& responseObject)
 		}
 		break;
 	}
-
 }
 
 bool EthStratumClientV2::submit(EthashProofOfWork::Solution solution)
