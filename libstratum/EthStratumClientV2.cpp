@@ -32,10 +32,9 @@ static void diffToTarget(uint32_t *target, double diff)
 }
 
 
-EthStratumClientV2::EthStratumClientV2(GenericFarm<EthashProofOfWork> * f, MinerType m, string const & host, string const & port, string const & user, string const & pass, int const & retries, int const & worktimeout, int const & protocol, string const & email)
+EthStratumClientV2::EthStratumClientV2(GenericFarm<EthashProofOfWork> * f, MinerType m, string const & host, string const & port, string const & user, string const & pass, int const & retries, int const & protocol, string const & email)
 	: Worker("stratum"), 
-	  m_socket(m_io_service),
-	  m_worktimer(m_io_service, boost::posix_time::milliseconds(0))
+	  m_socket(m_io_service)
 {
 	m_minerType = m;
 	m_primary.host = host;
@@ -48,7 +47,6 @@ EthStratumClientV2::EthStratumClientV2(GenericFarm<EthashProofOfWork> * f, Miner
 	m_authorized = false;
 	m_connected = false;
 	m_maxRetries = retries;
-	m_worktimeout = worktimeout;
 
 	m_protocol = protocol;
 	m_email = email;
@@ -193,7 +191,6 @@ void EthStratumClientV2::connect()
 
 void EthStratumClientV2::reconnect()
 {
-	m_worktimer.cancel();
 	m_sharesPending = 0;		// reset counter
 
 	//m_io_service.reset();
@@ -268,7 +265,8 @@ void EthStratumClientV2::processReponse(Json::Value& responseObject)
 	std::ostream os(&m_requestBuffer);
 	Json::Value params;
 	int id = responseObject.get("id", Json::Value::null).asInt();
-	long responseTime = 0;
+	// std::chrono::steady_clock::time_point responseTime;
+	string logMsg;
 	switch (id)
 	{
 		case 1:
@@ -315,16 +313,20 @@ void EthStratumClientV2::processReponse(Json::Value& responseObject)
 	case 6:
 		m_sharesPending = 0;		// reset counter
 		// id 6 == stale submit
-		responseTime = m_worktimeout -  m_worktimer.expires_from_now().total_milliseconds();
-		//m_worktimer.cancel();
 		if (responseObject.get("result", false).asBool()) {
-			cnote << "B-) Submitted and accepted in" << responseTime << "ms.";
 			p_farm->acceptedSolution(id==6);
+			//cnote << "B-) Submitted and accepted in";
+			logMsg = "B-) Submitted and accepted in";
 		}
 		else {
-			cwarn << ":-( Rejected in" << responseTime << "ms.";
 			p_farm->rejectedSolution(id==6);
+			//cnote << ":-( Rejected in";
+			logMsg = ":-( Rejected in";
 		}
+		cnote << logMsg <<
+			std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now() - m_shareTimer).count()
+			<< "ms.";
 		break;
 	default:
 		string method, workattr;
@@ -393,10 +395,6 @@ void EthStratumClientV2::processReponse(Json::Value& responseObject)
 
 						if (headerHash != m_current.headerHash)
 						{
-							//x_current.lock();
-							//if (p_worktimer)
-							//	p_worktimer->cancel();
-
 							m_previous  = m_current;
 							m_previousJob = m_job;
 
@@ -406,9 +404,6 @@ void EthStratumClientV2::processReponse(Json::Value& responseObject)
 							m_job = job;
 
 							p_farm->setWork(m_current);
-							//x_current.unlock();
-							//p_worktimer = new boost::asio::deadline_timer(m_io_service, boost::posix_time::seconds(m_worktimeout));
-							//p_worktimer->async_wait(boost::bind(&EthStratumClientV2::work_timeout_handler, this, boost::asio::placeholders::error));
 		
 							jobReport();			// display new job info
 						}
@@ -443,15 +438,6 @@ void EthStratumClientV2::processReponse(Json::Value& responseObject)
 		break;
 	}
 
-}
-
-void EthStratumClientV2::work_timeout_handler(const boost::system::error_code& ec) {
-
-	cnote << "work_timeout_handler";
-	if (!ec) {
-		cnote << "No share response received in" << m_worktimeout << "milliseconds.";
-		reconnect();
-	}
 }
 
 bool EthStratumClientV2::submit(EthashProofOfWork::Solution solution)
@@ -497,7 +483,6 @@ bool EthStratumClientV2::submit(EthashProofOfWork::Solution solution)
 	if ( m_sharesPending >= MAX_PENDING_SHARES && m_connected) {
 		// force a reconnect
 		cwarn << MAX_PENDING_SHARES << "shares submitted with no reply.";
-		//m_authorized = false;
 		m_connected = false;
 		m_socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both);
 		return false;
@@ -523,13 +508,11 @@ bool EthStratumClientV2::submit(EthashProofOfWork::Solution solution)
 		std::ostream os(&m_requestBuffer);
 		os << json;
 		write(m_socket, m_requestBuffer);
-		m_worktimer.expires_from_now(boost::posix_time::milliseconds(m_worktimeout));
+		m_shareTimer = std::chrono::steady_clock::now();
 	}
 		catch (std::exception const& _e) {
 			cwarn << "Share submit failed:" <<  _e.what();
 	}
-
-	// m_worktimer.async_wait(boost::bind(&EthStratumClientV2::work_timeout_handler, this, boost::asio::placeholders::error));
 
 	return true;
 }

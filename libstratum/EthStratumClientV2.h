@@ -1,3 +1,4 @@
+#include <chrono>
 #include <boost/asio.hpp>
 #include <libdevcore/FixedHash.h>
 #include <libdevcore/Worker.h>
@@ -22,7 +23,7 @@ class Value;
 class EthStratumClientV2 : public Worker
 {
 public:
-	EthStratumClientV2(GenericFarm<EthashProofOfWork> * f, MinerType m, string const & host, string const & port, string const & user, string const & pass, int const & retries, int const & worktimeout, int const & protocol, string const & email);
+	EthStratumClientV2(GenericFarm<EthashProofOfWork> * f, MinerType m, string const & host, string const & port, string const & user, string const & pass, int const & retries, int const & protocol, string const & email);
 	~EthStratumClientV2();
 
 	void setFailover(string const & host, string const & port);
@@ -40,7 +41,6 @@ private:
 	void connect();
 	
 	void disconnect();
-	void work_timeout_handler(const boost::system::error_code& ec);
 
 	void processReponse(Json::Value& responseObject);
 	
@@ -58,8 +58,8 @@ private:
 
 	int	m_retries = 0;
 	int	m_maxRetries;
-	int m_worktimeout = 300;
 	unsigned int m_sharesPending = 0;
+	std::chrono::steady_clock::time_point m_shareTimer;
 
 	int m_waitState = MINER_WAIT_STATE_WORK;
 
@@ -78,8 +78,6 @@ private:
 
 	boost::asio::streambuf m_requestBuffer;
 	boost::asio::streambuf m_responseBuffer;
-
-	boost::asio::deadline_timer  m_worktimer;
 
 	int m_protocol;
 	string m_email;
