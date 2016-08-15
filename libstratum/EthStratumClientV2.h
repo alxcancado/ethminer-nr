@@ -1,8 +1,4 @@
-#include <iostream>
-#include <boost/array.hpp>
 #include <boost/asio.hpp>
-#include <boost/bind.hpp>
-#include <libdevcore/Log.h>
 #include <libdevcore/FixedHash.h>
 #include <libdevcore/Worker.h>
 #include <libethcore/Farm.h>
@@ -62,14 +58,14 @@ private:
 
 	int	m_retries = 0;
 	int	m_maxRetries;
-	int m_worktimeout = 60;
+	int m_worktimeout = 300;
+	unsigned int m_sharesPending = 0;
 
 	int m_waitState = MINER_WAIT_STATE_WORK;
 
 	string m_response;
 
 	GenericFarm<EthashProofOfWork> * p_farm;
-	//mutex x_current;
 	EthashProofOfWork::WorkPackage m_current;
 	EthashProofOfWork::WorkPackage m_previous;
 

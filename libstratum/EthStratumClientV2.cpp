@@ -1,10 +1,14 @@
 
 #include "EthStratumClientV2.h"
+#include <iostream>
 #include <json/json.h>
 #include <libdevcore/Log.h>
 #include <libethash/endian.h>
 using boost::asio::ip::tcp;
 
+#ifndef MAX_PENDING_SHARES
+#define MAX_PENDING_SHARES 3
+#endif
 
 static void diffToTarget(uint32_t *target, double diff)
 {
@@ -122,15 +126,9 @@ void EthStratumClientV2::connect()
 
 	tcp::resolver r(m_io_service);
 	tcp::resolver::query q(p_active->host, p_active->port);
-	tcp::resolver::iterator endpoint_iterator = r.resolve(q);
-	tcp::resolver::iterator end;
-
 	boost::system::error_code error = boost::asio::error::host_not_found;
-	while (error && endpoint_iterator != end)
-	{
-		m_socket.close();
-		m_socket.connect(*endpoint_iterator++, error);
-	}
+	boost::asio::connect( m_socket, r.resolve(q), error);
+	
 	if (error)
 	{
 		cerr << "Could not connect to stratum server " << p_active->host + ":" + p_active->port + ", " << error.message();
@@ -196,6 +194,7 @@ void EthStratumClientV2::connect()
 void EthStratumClientV2::reconnect()
 {
 	m_worktimer.cancel();
+	m_sharesPending = 0;		// reset counter
 
 	//m_io_service.reset();
 	//m_socket.close(); // leads to crashes on Linux
@@ -314,6 +313,7 @@ void EthStratumClientV2::processReponse(Json::Value& responseObject)
 		break;
 	case 4:
 	case 6:
+		m_sharesPending = 0;		// reset counter
 		// id 6 == stale submit
 		responseTime = m_worktimeout -  m_worktimer.expires_from_now().total_milliseconds();
 		//m_worktimer.cancel();
@@ -454,9 +454,13 @@ void EthStratumClientV2::work_timeout_handler(const boost::system::error_code& e
 	}
 }
 
-bool EthStratumClientV2::submit(EthashProofOfWork::Solution solution) {
-
+bool EthStratumClientV2::submit(EthashProofOfWork::Solution solution)
+{
 	cnote << "Submit solution to" << p_active->host;
+	if (!m_connected){ 
+		cwarn << "No pool connection to submit share.";
+		return false;
+	}
 
 	string minernonce;
 	if (m_protocol == STRATUM_PROTOCOL_ETHEREUMSTRATUM)
@@ -489,6 +493,16 @@ bool EthStratumClientV2::submit(EthashProofOfWork::Solution solution) {
 		p_farm->failedSolution();
 		return false;
 	}
+
+	if ( m_sharesPending >= MAX_PENDING_SHARES && m_connected) {
+		// force a reconnect
+		cwarn << MAX_PENDING_SHARES << "shares submitted with no reply.";
+		//m_authorized = false;
+		m_connected = false;
+		m_socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both);
+		return false;
+	}
+	m_sharesPending++;
 
 	switch (m_protocol) {
 	case STRATUM_PROTOCOL_STRATUM:
