@@ -28,7 +28,6 @@
 #include <libdevcore/Log.h>
 #include <libdevcore/SHA3.h>
 #include "Exceptions.h"
-#include "Params.h"
 #include "BlockInfo.h"
 using namespace std;
 using namespace dev;

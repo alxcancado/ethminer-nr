@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <thread>
 #include <list>
 #include <atomic>
 #include <string>
