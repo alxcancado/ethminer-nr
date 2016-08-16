@@ -239,10 +239,10 @@ public:
 		{
 			m_fport = string(argv[++i]);
 		}
-		else if ((arg == "--share-timeout") && i + 1 < argc)
-		{
-			m_worktimeout = atoi(argv[++i]);
-		}
+		//else if ((arg == "--share-timeout") && i + 1 < argc)
+		//{
+		//	m_worktimeout = atoi(argv[++i]);
+		//}
 		
 #endif
 #if ETH_ETHASHCL || !ETH_TRUE
@@ -554,7 +554,7 @@ public:
 			<< "	-FS, --failover-stratum <host:port>  Failover stratum server at host:port" << endl
 			<< "    -O, --userpass <username.workername:password> Stratum login credentials" << endl
 			<< "    -FO, --failover-userpass <username.workername:password> Failover stratum login credentials (optional, will use normal credentials when omitted)" << endl
-			<< "    --share-timeout <n> reconnect if no response to submitted share received within n ms (non-functional - for testing)" << endl
+//			<< "    --share-timeout <n> reconnect if no response to submitted share received within n ms (non-functional - for testing)" << endl
 			<< "    -SP, --stratum-protocol <n> Choose which stratum protocol to use:" << endl
 			<< "        0: official stratum spec: ethpool, ethermine, coinotron, mph, nanopool (default)" << endl
 			<< "        1: eth-proxy compatible: dwarfpool, f2pool, nanopool" << endl
@@ -950,7 +950,7 @@ private:
 		
 		GenericFarm<EthashProofOfWork> f;
 
-			EthStratumClientV2 client(&f, m_minerType, m_farmURL, m_port, m_user, m_pass, m_maxFarmRetries, m_worktimeout, m_stratumProtocol, m_email);
+			EthStratumClientV2 client(&f, m_minerType, m_farmURL, m_port, m_user, m_pass, m_maxFarmRetries, m_stratumProtocol, m_email);
 			if (m_farmFailOverURL != "")
 			{
 				if (m_fuser != "")
@@ -1038,7 +1038,6 @@ private:
 	unsigned m_farmRecheckPeriod = 500;
 	unsigned m_defaultStratumFarmRecheckPeriod = 2000;
 	bool m_farmRecheckSet = false;
-	int m_worktimeout = 1500;		// milliseconds
 
 #if ETH_STRATUM || !ETH_TRUE
 	int m_stratumClientVersion = 1;
