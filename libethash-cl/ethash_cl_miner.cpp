@@ -491,7 +491,9 @@ bool ethash_cl_miner::init(
 		auto endDAG = std::chrono::steady_clock::now();
 
 		auto dagTime = std::chrono::duration_cast<std::chrono::milliseconds>(endDAG-startDAG);
-		cnote << "DAG creation time:" << dagTime.count() << "ms.";
+		char gb[16];
+		sprintf(gb, "%.2f", (float)dagSize / (1024 * 1024 * 1024));
+		cnote << string(gb)  + "GB of DAG data generated in" << dagTime.count() << "ms.";
 	}
 	catch (cl::Error const& err)
 	{
