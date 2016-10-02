@@ -7,7 +7,7 @@
 using boost::asio::ip::tcp;
 
 #ifndef MAX_PENDING_SHARES
-#define MAX_PENDING_SHARES 3
+#define MAX_PENDING_SHARES 2
 #endif
 
 static void diffToTarget(uint32_t *target, double diff)
@@ -434,7 +434,6 @@ bool EthStratumClientV2::submit(EthashProofOfWork::Solution solution)
 	cnote << "Submit solution to" << p_active->host;
 	if (!m_connected){ 
 		cwarn << "No pool connection to submit share.";
-		return false;
 	}
 
 	string minernonce;
