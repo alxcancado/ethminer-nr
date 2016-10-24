@@ -210,8 +210,8 @@ void EthStratumClientV2::reconnect()
 		}
 	}
 	
-	cnote << "Reconnecting in 3 seconds...";
-	boost::asio::deadline_timer     timer(m_io_service, boost::posix_time::seconds(3));
+	cnote << "Reconnecting in 5 seconds...";
+	boost::asio::deadline_timer     timer(m_io_service, boost::posix_time::seconds(5));
 	timer.wait();
 }
 
@@ -296,7 +296,7 @@ void EthStratumClientV2::processReponse(Json::Value& responseObject)
 		else
 		{
 			cwarn << "Worker not authorized:" << p_active->user;
-			disconnect();
+			reconnect();
 		}
 		break;
 	case 4:
