@@ -5,11 +5,11 @@ What is ethminer-0.9.41-genoil-1.x.x?
 Formerly known as Genoil's CUDA miner, ethminer-0.9.41-genoil-1.x.x is a fork of the stock ethminer version 0.9.41. While native CUDA support is its most significant difference, it has the following additional features:
 
 - realistic benchmarking against arbitrary epoch/DAG/blocknumber
-- custom DAG storage directory
-- auto DAG directory cleanup
+- fast on-GPU DAG creation uses no disk space
 - stratum mining without proxy
 - OpenCL devices picking
 - farm failover (getwork + stratum)
+- submits stale shares for previous block
 
 ### Usage
 
@@ -32,7 +32,7 @@ Unfortunately the issue is a bit more serious on the GTX750Ti, already causing s
 Yes, but in a different way. While Nvidia cards have thresholds (i.e 2GB for 9x0 / Win7) of the DAG file size after which performance will drop steeply, on AMD cards the hashrate also drops with increasing DAG size, but more in a linear pattern. 
 
 4. Can I still mine ETH with my 2GB GPU?
-2GB should be sufficient for a while, altough it's become a bit uncertain if we'll stay below 2GB until the switch to PoS. I don't keep an exact list of all supported GPU's, but generally speaking the following cards should be ok:
+Yes, until the DAG file reaches 2GB in the spring of 2017. I don't keep an exact list of all supported GPU's, but generally speaking the following cards should be ok:
 AMD HD78xx, HD79xx, R9 2xx, R9 3xx, Fury.
 Nvidia Geforce 6x0, 7x0, 8x0, 9x0, TITAN
 Quadro, Tesla & FirePro's with similar silicon should be fine too.
@@ -68,22 +68,19 @@ cmake -DBUNDLE=cudaminer -G "Visual Studio 12 2013 Win64" ..
 
 ### Building on Ubuntu
 
-Note: this section was copied from [ethpool](https://ethpool.freshdesk.com/support/solutions/articles/8000032853-how-to-compile-genoils-cuda-miner-on-ubuntu)
-
 Ubuntu 14.04. OpenCL only (for AMD cards)
 
 ```bash
+sudo apt-get install software-properties-common -y 
+sudo add-apt-repository -y ppa:ethereum/ethereum
 sudo apt-get update
-sudo apt-get -y install software-properties-common
-add-apt-repository -y ppa:ethereum/ethereum
-sudo apt-get update
-sudo apt-get install git cmake libcryptopp-dev libleveldb-dev libjsoncpp-dev libjson-rpc-cpp-dev libboost-all-dev libgmp-dev libreadline-dev libcurl4-gnutls-dev ocl-icd-libopencl1 opencl-headers mesa-common-dev libmicrohttpd-dev build-essential -y
+sudo apt-get install git cmake libleveldb-dev libjsoncpp-dev libboost-all-dev ocl-icd-libopencl1 opencl-headers build-essential -y
 git clone https://github.com/Genoil/cpp-ethereum/
 cd cpp-ethereum/
 mkdir build
 cd build
 cmake -DBUNDLE=miner ..
-make -j8
+make
 ```
 
 You can then find the executable in the ethminer subfolder
@@ -96,13 +93,13 @@ sudo dpkg -i cuda-repo-ubuntu1404_7.5-18_amd64.deb
 sudo apt-get -y install software-properties-common
 sudo add-apt-repository -y ppa:ethereum/ethereum
 sudo apt-get update
-sudo apt-get install git cmake libcryptopp-dev libleveldb-dev libjsoncpp-dev libjson-rpc-cpp-dev libboost-all-dev libgmp-dev libreadline-dev libcurl4-gnutls-dev ocl-icd-libopencl1 opencl-headers mesa-common-dev libmicrohttpd-dev build-essential cuda -y
+sudo apt-get install git cmake libleveldb-dev libjsoncpp-dev libjson-rpc-cpp-dev libboost-all-dev libgmp-dev libreadline-dev libcurl4-gnutls-dev ocl-icd-libopencl1 opencl-headers mesa-common-dev libmicrohttpd-dev build-essential cuda -y
 git clone https://github.com/Genoil/cpp-ethereum/
 cd cpp-ethereum/
 mkdir build
 cd build
-cmake -DBUNDLE=miner ..
-make -j8
+cmake -DBUNDLE=cudaminer ..
+make
 ```
 
 You can then find the executable in the ethminer subfolder

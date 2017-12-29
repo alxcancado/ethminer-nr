@@ -1,11 +1,9 @@
-#define OPENCL_PLATFORM_UNKNOWN 0
-#define OPENCL_PLATFORM_NVIDIA  1
-#define OPENCL_PLATFORM_AMD			2
 
+#define ETHASH_DATASET_PARENTS 256
+#define NODE_WORDS (64/4)
 
 #define THREADS_PER_HASH (128 / 16)
 #define HASHES_PER_LOOP (GROUP_SIZE / THREADS_PER_HASH)
-
 #define FNV_PRIME	0x01000193
 
 __constant uint2 const Keccak_f1600_RC[24] = {
@@ -35,20 +33,7 @@ __constant uint2 const Keccak_f1600_RC[24] = {
 	(uint2)(0x80008008, 0x80000000),
 };
 
-#if PLATFORM == OPENCL_PLATFORM_NVIDIA && COMPUTE >= 35
-static uint2 ROL2(const uint2 a, const int offset) {
-	uint2 result;
-	if (offset >= 32) {
-		asm("shf.l.wrap.b32 %0, %1, %2, %3;" : "=r"(result.x) : "r"(a.x), "r"(a.y), "r"(offset));
-		asm("shf.l.wrap.b32 %0, %1, %2, %3;" : "=r"(result.y) : "r"(a.y), "r"(a.x), "r"(offset));
-	}
-	else {
-		asm("shf.l.wrap.b32 %0, %1, %2, %3;" : "=r"(result.x) : "r"(a.y), "r"(a.x), "r"(offset));
-		asm("shf.l.wrap.b32 %0, %1, %2, %3;" : "=r"(result.y) : "r"(a.x), "r"(a.y), "r"(offset));
-	}
-	return result;
-}
-#elif PLATFORM == OPENCL_PLATFORM_AMD
+#ifdef cl_amd_media_ops
 #pragma OPENCL EXTENSION cl_amd_media_ops : enable
 static uint2 ROL2(const uint2 vv, const int r)
 {
@@ -176,8 +161,6 @@ static void keccak_f1600_round(uint2* a, uint r)
 
 static void keccak_f1600_no_absorb(uint2* a, uint out_size, uint isolate)
 {
-
-
 	// Originally I unrolled the first and last rounds to interface
 	// better with surrounding code, however I haven't done this
 	// without causing the AMD compiler to blow up the VGPR usage.
@@ -227,6 +210,18 @@ typedef struct
 	ulong ulongs[32 / sizeof(ulong)];
 } hash32_t;
 
+typedef union {
+	uint	 words[64 / sizeof(uint)];
+	uint2	 uint2s[64 / sizeof(uint2)];
+	uint4	 uint4s[64 / sizeof(uint4)];
+} hash64_t;
+
+typedef union {
+	uint	 words[200 / sizeof(uint)];
+	uint2	 uint2s[200 / sizeof(uint2)];
+	uint4	 uint4s[200 / sizeof(uint4)];
+} hash200_t;
+
 typedef struct
 {
 	uint4 uint4s[128 / sizeof(uint4)];
@@ -238,9 +233,6 @@ typedef union {
 	uint  uints[16];
 } compute_hash_share;
 
-#if PLATFORM != OPENCL_PLATFORM_NVIDIA // use maxrregs on nv
-__attribute__((reqd_work_group_size(GROUP_SIZE, 1, 1)))
-#endif
 __kernel void ethash_search(
 	__global volatile uint* restrict g_output,
 	__constant hash32_t const* g_header,
@@ -333,4 +325,36 @@ __kernel void ethash_search(
 		uint slot = min(MAX_OUTPUTS, atomic_inc(&g_output[0]) + 1);
 		g_output[slot] = gid;
 	}
+}
+
+static void SHA3_512(uint2* s, uint isolate)
+{
+	for (uint i = 8; i != 25; ++i)
+	{
+		s[i] = (uint2){ 0, 0 };
+	}
+	s[8].x = 0x00000001;
+	s[8].y = 0x80000000;
+	keccak_f1600_no_absorb(s, 8, isolate);
+}
+
+__kernel void ethash_calculate_dag_item(uint start, __global hash64_t const* g_light, __global hash64_t * g_dag, uint isolate)
+{
+	uint const node_index = start + get_global_id(0);
+	if (node_index > DAG_SIZE * 2) return;
+
+	hash200_t dag_node;
+	copy(dag_node.uint4s, g_light[node_index % LIGHT_SIZE].uint4s, 4);
+	dag_node.words[0] ^= node_index;
+	SHA3_512(dag_node.uint2s, isolate);
+
+	for (uint i = 0; i != ETHASH_DATASET_PARENTS; ++i) {
+		uint parent_index = fnv(node_index ^ i, dag_node.words[i % NODE_WORDS]) % LIGHT_SIZE;
+
+		for (uint w = 0; w != 4; ++w) {
+			dag_node.uint4s[w] = fnv4(dag_node.uint4s[w], g_light[parent_index].uint4s[w]);
+		}
+	}
+	SHA3_512(dag_node.uint2s, isolate);
+	copy(g_dag[node_index].uint4s, dag_node.uint4s, 4);
 }

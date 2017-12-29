@@ -22,7 +22,6 @@
  */
 
 #include "EthashSealEngine.h"
-#include "EthashCPUMiner.h"
 #include "EthashGPUMiner.h"
 #include "EthashCUDAMiner.h"
 using namespace std;
@@ -32,7 +31,6 @@ using namespace eth;
 EthashSealEngine::EthashSealEngine()
 {
 	map<string, GenericFarm<EthashProofOfWork>::SealerDescriptor> sealers;
-	sealers["cpu"] = GenericFarm<EthashProofOfWork>::SealerDescriptor{&EthashCPUMiner::instances, [](GenericMiner<EthashProofOfWork>::ConstructionInfo ci){ return new EthashCPUMiner(ci); }};
 #if ETH_ETHASHCL
 	sealers["opencl"] = GenericFarm<EthashProofOfWork>::SealerDescriptor{&EthashGPUMiner::instances, [](GenericMiner<EthashProofOfWork>::ConstructionInfo ci){ return new EthashGPUMiner(ci); }};
 #endif
@@ -45,7 +43,7 @@ EthashSealEngine::EthashSealEngine()
 strings EthashSealEngine::sealers() const
 {
 	return {
-		"cpu"
+		""
 #if ETH_ETHASHCL
 		, "opencl"
 #endif
@@ -59,7 +57,7 @@ void EthashSealEngine::generateSeal(BlockInfo const& _bi)
 {
 	m_sealing = Ethash::BlockHeader(_bi);
 	m_farm.setWork(m_sealing);
-	m_farm.start(m_sealer);
+	m_farm.start(m_sealer, false);
 	m_farm.setWork(m_sealing);		// TODO: take out one before or one after...
 	bytes shouldPrecompute = option("precomputeDAG");
 	if (!shouldPrecompute.empty() && shouldPrecompute[0] == 1)
