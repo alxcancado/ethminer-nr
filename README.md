@@ -15,11 +15,11 @@ ethminer --help
 
 ### F.A.Q
 
-4. Can I still mine ETH with my 2GB GPU?
+1. Can I still mine ETH with my 2GB GPU?
 Not since the ethereum DAG exceeded 2GB.  Other ethash coins with a smaller
 DAG like expanse can still be mined.
 
-5. Can I buy a private kernel from you that hashes faster?
+2. Can I buy a private kernel from you that hashes faster?
 No, but I will consider custom development opportunities.
 
 

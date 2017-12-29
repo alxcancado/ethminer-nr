@@ -21,9 +21,9 @@
 
 #pragma once
 
-#include <thread>
 #include <list>
 #include <atomic>
+#include <string>
 #include <boost/timer.hpp>
 #include <libdevcore/Common.h>
 #include <libdevcore/Log.h>
@@ -33,6 +33,24 @@
 #define MINER_WAIT_STATE_UNKNOWN 0
 #define MINER_WAIT_STATE_WORK	 1
 #define MINER_WAIT_STATE_DAG	 2
+
+
+#define DAG_LOAD_MODE_PARALLEL	 0
+#define DAG_LOAD_MODE_SEQUENTIAL 1
+#define DAG_LOAD_MODE_SINGLE	 2
+
+#define STRATUM_PROTOCOL_STRATUM		 0
+#define STRATUM_PROTOCOL_ETHPROXY		 1
+#define STRATUM_PROTOCOL_ETHEREUMSTRATUM 2
+
+using namespace std;
+
+typedef struct {
+	string host;
+	string port;
+	string user;
+	string pass;
+} cred_t;
 
 namespace dev
 {
@@ -44,17 +62,17 @@ enum class MinerType
 {
 	CPU,
 	CL,
-	CUDA
+	CUDA,
+	Mixed
 };
 
 struct MineInfo: public WorkingProgress {};
 
 inline std::ostream& operator<<(std::ostream& _out, WorkingProgress _p)
 {
-	float mh = _p.rate() / 1000000.0f;
-	char mhs[16];
-	sprintf(mhs, "%.2f", mh);
-	_out << std::string(mhs) + "MH/s";
+	ostringstream khsTtl;
+	khsTtl << (_p.hashes/_p.ms);
+	_out << _p.hashDetail + "=" + khsTtl.str() + "Khs ";
 	return _out;
 }
 
@@ -86,10 +104,12 @@ private:
 
 inline std::ostream& operator<<(std::ostream& os, SolutionStats s)
 {
-	return os << "[A" << s.getAccepts() << "+" << s.getAcceptedStales() << ":R" << s.getRejects() << "+" << s.getRejectedStales() << ":F" << s.getFailures() << "]";
+//	return os << "[A" << s.getAccepts() << "+" << s.getAcceptedStales() << ":R" << s.getRejects() << "+" << s.getRejectedStales() << ":F" << s.getFailures() << "]";
+	return os << "A" << s.getAccepts() << "+" << s.getAcceptedStales() << ":R" << s.getRejects() << "+" << s.getRejectedStales();
 }
 
 template <class PoW> class GenericMiner;
+
 
 /**
  * @brief Class for hosting one or more Miners.
@@ -162,6 +182,7 @@ public:
 
 protected:
 
+
 	// REQUIRED TO BE REIMPLEMENTED BY A SUBCLASS:
 
 	/**
@@ -199,6 +220,10 @@ protected:
 
 	void accumulateHashes(unsigned _n) { m_hashCount += _n; }
 
+	static unsigned s_dagLoadMode;
+	static volatile unsigned s_dagLoadIndex;
+	static unsigned s_dagCreateDevice;
+	static volatile void* s_dagInHostMemory;
 private:
 	FarmFace* m_farm = nullptr;
 	unsigned m_index;
@@ -207,6 +232,9 @@ private:
 
 	WorkPackage m_work;
 	mutable Mutex x_work;
+
+	
+	bool m_dagLoaded = false;
 };
 
 }

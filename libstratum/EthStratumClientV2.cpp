@@ -1,0 +1,507 @@
+
+#include "EthStratumClientV2.h"
+#include <iostream>
+#include <json/json.h>
+#include <libdevcore/Log.h>
+#include <libethash/endian.h>
+using boost::asio::ip::tcp;
+
+#ifndef MAX_PENDING_SHARES
+#define MAX_PENDING_SHARES 2
+#endif
+
+static void diffToTarget(uint32_t *target, double diff)
+{
+	uint32_t target2[8];
+	uint64_t m;
+	int k;
+
+	for (k = 6; k > 0 && diff > 1.0; k--)
+		diff /= 4294967296.0;
+	m = (uint64_t)(4294901760.0 / diff);
+	if (m == 0 && k == 6)
+		memset(target2, 0xff, 32);
+	else {
+		memset(target2, 0, 32);
+		target2[k] = (uint32_t)m;
+		target2[k + 1] = (uint32_t)(m >> 32);
+	}
+
+	for (int i = 0; i < 32; i++)
+		((uint8_t*)target)[31 - i] = ((uint8_t*)target2)[i];
+}
+
+
+EthStratumClientV2::EthStratumClientV2(GenericFarm<EthashProofOfWork> * f, MinerType m, string const & host, string const & port, string const & user, string const & pass, int const & retries, int const & protocol, string const & email)
+	: Worker("stratum"), 
+	  m_socket(m_io_service)
+{
+	m_minerType = m;
+	m_primary.host = host;
+	m_primary.port = port;
+	m_primary.user = user;
+	m_primary.pass = pass;
+
+	p_active = &m_primary;
+
+	m_connected = false;
+	m_maxRetries = retries;
+
+	m_protocol = protocol;
+	m_email = email;
+
+	p_farm = f;
+	startWorking();
+}
+
+EthStratumClientV2::~EthStratumClientV2()
+{
+
+}
+
+void EthStratumClientV2::setFailover(string const & host, string const & port)
+{
+	setFailover(host, port, p_active->user, p_active->pass);
+}
+
+void EthStratumClientV2::setFailover(string const & host, string const & port, string const & user, string const & pass)
+{
+	m_failover.host = host;
+	m_failover.port = port;
+	m_failover.user = user;
+	m_failover.pass = pass;
+}
+
+void EthStratumClientV2::workLoop() 
+{
+	while (m_running)
+	{
+		try {
+			if (!m_connected)
+			{
+				connect();
+				
+			}
+			read_until(m_socket, m_responseBuffer, "\n");
+			std::istream is(&m_responseBuffer);
+			std::string response;
+			getline(is, response);
+
+			if (!response.empty() && response.front() == '{' && response.back() == '}')
+			{
+				cdebug << "received: " << response;
+				Json::Value responseObject;
+				Json::Reader reader;
+				if (reader.parse(response.c_str(), responseObject))
+				{
+					processReponse(responseObject);
+					m_response = response;
+				}
+				else
+				{
+					cwarn << "Parse response failed: " << reader.getFormattedErrorMessages();
+				}
+			}
+			else if (m_protocol != STRATUM_PROTOCOL_ETHPROXY)
+			{
+				cwarn << "Discarding incomplete response";
+			}
+		}
+		catch (std::exception const& _e) {
+			cwarn << _e.what();
+			reconnect();
+		}
+	}
+}
+
+
+void EthStratumClientV2::connect()
+{
+	cnote << "Connecting to stratum server " << p_active->host + ":" + p_active->port;
+
+	tcp::resolver r(m_io_service);
+	tcp::resolver::query q(p_active->host, p_active->port);
+	boost::system::error_code error = boost::asio::error::host_not_found;
+	boost::asio::connect( m_socket, r.resolve(q), error);
+	
+	if (error)
+	{
+		cerr << "Could not connect to stratum server " << p_active->host + ":" + p_active->port + ", " << error.message();
+		reconnect();
+	}
+	else
+	{
+		cnote << "Connected!";
+		m_connected = true;
+		boost::asio::socket_base::keep_alive option_ka(true);
+		m_socket.set_option(option_ka);
+
+		if (!p_farm->isMining())
+		{
+			cnote << "Starting farm";
+			if (m_minerType == MinerType::CL)
+				p_farm->start("opencl", false);
+			else if (m_minerType == MinerType::CUDA)
+				p_farm->start("cuda", false);
+			else if (m_minerType == MinerType::Mixed) {
+				p_farm->start("cuda", false);
+				p_farm->start("opencl", true);
+			}
+		}
+		std::ostream os(&m_requestBuffer);
+
+		string user;
+		size_t p;
+
+
+		switch (m_protocol) {
+			case STRATUM_PROTOCOL_STRATUM:
+				os << "{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": []}\n";
+				break;
+			case STRATUM_PROTOCOL_ETHPROXY:
+				p = p_active->user.find_first_of(".");
+				user = p_active->user.substr(0, p);
+				if (p + 1 <= p_active->user.length())
+					m_worker = p_active->user.substr(p + 1);
+				else
+					m_worker = "";
+
+				if (m_email.empty())
+				{
+					os << "{\"id\": 1, \"worker\":\"" << m_worker << "\", \"method\": \"eth_submitLogin\", \"params\": [\"" << user << "\"]}\n";
+				}
+				else
+				{
+					os << "{\"id\": 1, \"worker\":\"" << m_worker << "\", \"method\": \"eth_submitLogin\", \"params\": [\"" << user << "\", \"" << m_email << "\"]}\n";
+				}
+				break;
+			case STRATUM_PROTOCOL_ETHEREUMSTRATUM:
+				os << "{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": [\"ethminer/" << ETH_PROJECT_VERSION << "\",\"EthereumStratum/1.0.0\"]}\n";
+				break;
+		}
+
+		write(m_socket, m_requestBuffer);
+	}
+}
+
+void EthStratumClientV2::reconnect()
+{
+	m_sharesPending = 0;		// reset counter
+	m_connected = false;
+		
+	if (!m_failover.host.empty())
+	{
+		m_retries++;
+
+		if (m_retries > m_maxRetries)
+		{
+			if (m_failover.host == "exit") {
+				disconnect();
+				return;
+			}
+			else if (p_active == &m_primary)
+			{
+				p_active = &m_failover;
+			}
+			else {
+				p_active = &m_primary;
+			}
+			m_retries = 0;
+		}
+	}
+	
+	cnote << "Reconnecting in 5 seconds...";
+	boost::asio::deadline_timer     timer(m_io_service, boost::posix_time::seconds(5));
+	timer.wait();
+}
+
+void EthStratumClientV2::disconnect()
+{
+	cnote << "Disconnecting";
+	m_connected = false;
+	m_running = false;
+	if (p_farm->isMining())
+	{
+		cnote << "Stopping farm";
+		p_farm->stop();
+	}
+	m_socket.close();
+}
+
+void EthStratumClientV2::processExtranonce(std::string& enonce)
+{
+	m_extraNonceHexSize = enonce.length();
+
+	cnote << "Extranonce set to " << enonce;
+
+	for (int i = enonce.length(); i < 16; ++i) enonce += "0";
+	m_extraNonce = h64(enonce);
+}
+
+void EthStratumClientV2::jobReport()
+{
+	cnote << "New job" << m_job << 
+			 "target " << m_current.boundary.hex().substr(4, 8) << 
+			 "header " << m_current.headerHash.hex().substr(0,8);
+}
+
+void EthStratumClientV2::processReponse(Json::Value& responseObject)
+{
+	Json::Value json_err = responseObject.get("error", Json::Value::null);
+	if (!json_err.isNull())
+	{
+		cwarn << "unknown stratum error";
+	}
+	std::ostream os(&m_requestBuffer);
+	Json::Value params;
+	int id = responseObject.get("id", Json::Value::null).asInt();
+	// std::chrono::steady_clock::time_point responseTime;
+	string logMsg;
+	switch (id)
+	{
+		case 1:
+
+		if (m_protocol == STRATUM_PROTOCOL_ETHEREUMSTRATUM)
+		{
+			m_nextWorkDifficulty = 1;
+			params = responseObject.get("result", Json::Value::null);
+			if (params.isArray())
+			{
+				std::string enonce = params.get((Json::Value::ArrayIndex)1, "").asString();
+				processExtranonce(enonce);
+			}
+
+			os << "{\"id\": 2, \"method\": \"mining.extranonce.subscribe\", \"params\": []}\n";
+		}
+		if (m_protocol != STRATUM_PROTOCOL_ETHPROXY)
+		{
+			cnote << "Subscribed to stratum server";
+			os << "{\"id\": 3, \"method\": \"mining.authorize\", \"params\": [\"" << p_active->user << "\",\"" << p_active->pass << "\"]}\n";
+			write(m_socket, m_requestBuffer);
+		}
+		else
+		{
+			os << "{\"id\": 5, \"method\": \"eth_getWork\", \"params\": []}\n"; // not strictly required but it does speed up initialization
+			write(m_socket, m_requestBuffer);
+		}
+		break;
+	case 2:
+		// nothing to do...
+		break;
+	case 3:
+		if ( responseObject.get("result", Json::Value::null).asBool() )
+		{
+			cnote << "Authorized worker " << p_active->user;
+		}
+		else
+		{
+			cwarn << "Worker not authorized:" << p_active->user;
+			reconnect();
+		}
+		break;
+	case 4:
+	case 6:
+		m_sharesPending = 0;		// reset counter
+		// id 6 == stale submit
+		if (responseObject.get("result", false).asBool()) {
+			p_farm->acceptedSolution(id==6);
+			//cnote << "B-) Submitted and accepted in";
+			logMsg = "B-) Submitted and accepted in";
+		}
+		else {
+			p_farm->rejectedSolution(id==6);
+			//cnote << ":-( Rejected in";
+			logMsg = ":-( Rejected in";
+		}
+		cnote << logMsg <<
+			std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now() - m_shareTimer).count()
+			<< "ms.";
+		break;
+	default:
+		string method, workattr;
+		unsigned index;
+		if (m_protocol != STRATUM_PROTOCOL_ETHPROXY)
+		{
+			method = responseObject.get("method", "").asString();
+			workattr = "params";
+			index = 1;
+		}
+		else
+		{
+			method = "mining.notify";
+			workattr = "result";
+			index = 0;
+		}
+
+		if (method == "mining.notify")
+		{
+			params = responseObject.get(workattr, Json::Value::null);
+			if (params.isArray())
+			{
+				string job = params.get((Json::Value::ArrayIndex)0, "").asString();
+
+				if (m_protocol == STRATUM_PROTOCOL_ETHEREUMSTRATUM)
+				{
+					string job = params.get((Json::Value::ArrayIndex)0, "").asString();
+					string sSeedHash = params.get((Json::Value::ArrayIndex)1, "").asString();
+					string sHeaderHash = params.get((Json::Value::ArrayIndex)2, "").asString();
+
+					if (sHeaderHash != "" && sSeedHash != "")
+					{
+						h256 seedHash = h256(sSeedHash);
+
+						m_previous  = m_current;
+						m_previousJob = m_job;
+
+						m_current.headerHash = h256(sHeaderHash);
+						m_current.seedHash = seedHash;
+						m_current.boundary = h256();
+						diffToTarget((uint32_t*)m_current.boundary.data(), m_nextWorkDifficulty);
+						m_current.startNonce = ethash_swap_u64(*((uint64_t*)m_extraNonce.data()));
+						m_current.exSizeBits = m_extraNonceHexSize * 4;
+						m_job = job;
+
+						p_farm->setWork(m_current);
+						jobReport();			// display new job info
+					}
+				}
+				else
+				{
+					string sHeaderHash = params.get((Json::Value::ArrayIndex)index++, "").asString();
+					string sSeedHash = params.get((Json::Value::ArrayIndex)index++, "").asString();
+					string sShareTarget = params.get((Json::Value::ArrayIndex)index++, "").asString();
+
+					// coinmine.pl fix
+					int l = sShareTarget.length();
+					if (l < 66)
+						sShareTarget = "0x" + string(66 - l, '0') + sShareTarget.substr(2);
+
+
+					if (sHeaderHash != "" && sSeedHash != "" && sShareTarget != "")
+					{
+						h256 seedHash = h256(sSeedHash);
+						h256 headerHash = h256(sHeaderHash);
+
+						if (headerHash != m_current.headerHash)
+						{
+							m_previous  = m_current;
+							m_previousJob = m_job;
+
+							m_current.headerHash = h256(sHeaderHash);
+							m_current.seedHash = seedHash;
+							m_current.boundary = h256(sShareTarget);
+							m_job = job;
+
+							p_farm->setWork(m_current);
+		
+							jobReport();			// display new job info
+						}
+					}
+				}
+			}
+		}
+		else if (method == "mining.set_difficulty" && m_protocol == STRATUM_PROTOCOL_ETHEREUMSTRATUM)
+		{
+			params = responseObject.get("params", Json::Value::null);
+			if (params.isArray())
+			{
+				m_nextWorkDifficulty = params.get((Json::Value::ArrayIndex)0, 1).asDouble();
+				if (m_nextWorkDifficulty <= 0.0001) m_nextWorkDifficulty = 0.0001;
+				cnote << "Difficulty set to " << m_nextWorkDifficulty;
+			}
+		}
+		else if (method == "mining.set_extranonce" && m_protocol == STRATUM_PROTOCOL_ETHEREUMSTRATUM)
+		{
+			params = responseObject.get("params", Json::Value::null);
+			if (params.isArray())
+			{
+				std::string enonce = params.get((Json::Value::ArrayIndex)0, "").asString();
+				processExtranonce(enonce);
+			}
+		}
+		else if (method == "client.get_version")
+		{
+			os << "{\"error\": null, \"id\" : " << id << ", \"result\" : \"" << ETH_PROJECT_VERSION << "\"}\n";
+			write(m_socket, m_requestBuffer);
+		}
+		break;
+	}
+}
+
+bool EthStratumClientV2::submit(EthashProofOfWork::Solution solution)
+{
+	cnote << "Submit solution to" << p_active->host;
+	if (!m_connected){ 
+		cwarn << "No pool connection to submit share.";
+	}
+
+	string minernonce;
+	if (m_protocol == STRATUM_PROTOCOL_ETHEREUMSTRATUM)
+		minernonce = solution.nonce.hex().substr(m_extraNonceHexSize, 16 - m_extraNonceHexSize);
+	else
+		minernonce = "0x" + solution.nonce.hex();
+
+	cdebug << "  Nonce:" << minernonce;
+
+	string json, jsonid, jobid, workHexHash;
+
+	// m_socket.shutdown(boost::asio::ip::tcp::socket::shutdown_send); // for failure testing
+
+	if (EthashAux::eval(m_current.seedHash, m_current.headerHash, solution.nonce).value < m_current.boundary)
+	{
+		jsonid = "{\"id\": 4";
+		jobid = m_job;
+		workHexHash = m_current.headerHash.hex();
+	}
+	else if (EthashAux::eval(m_previous.seedHash, m_previous.headerHash, solution.nonce).value < m_previous.boundary)
+	{
+		jsonid = "{\"id\": 6";
+		jobid = m_previousJob;
+		workHexHash = m_previous.headerHash.hex();
+
+		cwarn << "Submitting stale solution.";
+	}
+	else {
+		cwarn << "FAILURE: GPU gave incorrect result!";
+		p_farm->failedSolution();
+		return false;
+	}
+
+	if ( m_sharesPending >= MAX_PENDING_SHARES && m_connected) {
+		// force a reconnect
+		cwarn << MAX_PENDING_SHARES << "shares submitted with no reply.";
+		m_connected = false;
+		m_socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both);
+		return false;
+	}
+	m_sharesPending++;
+
+	switch (m_protocol) {
+	case STRATUM_PROTOCOL_STRATUM:
+		json = jsonid + ", \"method\": \"mining.submit\", \"params\": [\"" + p_active->user + "\",\"" + jobid + "\",\"" + minernonce + "\",\"0x" + workHexHash + "\",\"0x" + solution.mixHash.hex() + "\"]}\n";
+		break;
+	case STRATUM_PROTOCOL_ETHPROXY:
+		// Dwarf protocol
+		json = jsonid + ", \"worker\":\"" + m_worker + "\", \"method\": \"eth_submitWork\", \"params\": [\"" + minernonce + "\",\"0x" + workHexHash + "\",\"0x" + solution.mixHash.hex() + "\"]}\n";
+		break;
+	case STRATUM_PROTOCOL_ETHEREUMSTRATUM:
+		// NiceHash protocol
+		json = jsonid + ", \"method\": \"mining.submit\", \"params\": [\"" + p_active->user + "\",\"" + jobid + "\",\"" + minernonce + "\"]}\n";
+		break;
+	}
+
+	try{
+		cdebug << "Submitting share: " << json;	
+		std::ostream os(&m_requestBuffer);
+		os << json;
+		write(m_socket, m_requestBuffer);
+		m_shareTimer = std::chrono::steady_clock::now();
+	}
+		catch (std::exception const& _e) {
+			cwarn << "Share submit failed:" <<  _e.what();
+	}
+
+	return true;
+}
+
