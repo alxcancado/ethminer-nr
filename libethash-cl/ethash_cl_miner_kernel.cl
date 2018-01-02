@@ -320,7 +320,8 @@ __kernel void ethash_search(
 	// keccak_256(keccak_512(header..nonce) .. mix);
 	keccak_f1600_no_absorb((uint2*)state, 1, isolate);
 
-	if (as_ulong(as_uchar8(state[0]).s76543210) < target)
+	// if (as_ulong(as_uchar8(state[0]).s76543210) < target)
+	if (as_uint2(state[0]).s0 == 0)
 	{
 		uint slot = min(MAX_OUTPUTS, atomic_inc(&g_output[0]) + 1);
 		g_output[slot] = gid;
