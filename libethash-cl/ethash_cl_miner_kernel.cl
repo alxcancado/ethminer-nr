@@ -165,9 +165,10 @@ static void keccak_f1600_no_absorb(uint2* a, uint out_size, uint isolate)
 	// better with surrounding code, however I haven't done this
 	// without causing the AMD compiler to blow up the VGPR usage.
 
-	
-	//uint o = 25;
-	for (uint r = 0; r < 24;)
+	// let compiler optimize first round input size
+	// keccak_f1600_round(a, 0);
+
+	for (uint r = 0; r < 23;)
 	{
 		// This dynamic branch stops the AMD compiler unrolling the loop
 		// and additionally saves about 33% of the VGPRs, enough to gain another
@@ -182,10 +183,9 @@ static void keccak_f1600_no_absorb(uint2* a, uint out_size, uint isolate)
 			//if (r == 23) o = out_size;
 		}
 	} 
-	
 
-	// final round optimised for digest size
-	//keccak_f1600_round(a, 23, out_size);
+	// let compiler optimize final round for digest size
+	keccak_f1600_round(a, 23);
 }
 
 #define copy(dst, src, count) for (uint i = 0; i != count; ++i) { (dst)[i] = (src)[i]; }
