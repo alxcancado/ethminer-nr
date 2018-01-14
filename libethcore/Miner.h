@@ -105,7 +105,7 @@ private:
 inline std::ostream& operator<<(std::ostream& os, SolutionStats s)
 {
 //	return os << "[A" << s.getAccepts() << "+" << s.getAcceptedStales() << ":R" << s.getRejects() << "+" << s.getRejectedStales() << ":F" << s.getFailures() << "]";
-	return os << "A" << s.getAccepts() << "+" << s.getAcceptedStales() << ":R" << s.getRejects() << "+" << s.getRejectedStales();
+	return os << "A" << s.getAccepts() << "+" << s.getAcceptedStales() << ":R" << s.getRejects() << "+" << s.getRejectedStales() << ":F" << s.getFailures();
 }
 
 template <class PoW> class GenericMiner;
@@ -164,9 +164,9 @@ public:
 		}
 		if (!!_work)
 		{
-			DEV_TIMED_ABOVE("pause", 250)
+			//DEV_TIMED_ABOVE("pause", 250)
 				pause();
-			DEV_TIMED_ABOVE("kickOff", 250)
+			//DEV_TIMED_ABOVE("kickOff", 250)
 				kickOff();
 		}
 		else if (!_work && !!old)
