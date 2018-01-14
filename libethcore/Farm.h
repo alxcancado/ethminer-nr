@@ -72,7 +72,7 @@ public:
 		m_work = _wp;
 		for (auto const& m: m_miners)
 			m->setWork(m_work);
-		resetTimer();
+		//resetTimer();
 	}
 
 	void setSealers(std::map<std::string, SealerDescriptor> const& _sealers) { m_sealers = _sealers; }
@@ -111,7 +111,7 @@ public:
 		}
 		m_isMining = true;
 		m_lastSealer = _sealer;
-		resetTimer();
+		//resetTimer();
 		return true;
 	}
 	/**

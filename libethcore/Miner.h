@@ -171,7 +171,7 @@ public:
 		}
 		else if (!_work && !!old)
 			pause();
-		m_hashCount = 0;
+		//m_hashCount = 0;
 	}
 
 	uint64_t hashCount() const { return m_hashCount; }
