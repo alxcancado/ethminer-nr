@@ -69,13 +69,14 @@ public:
 	}
 
 protected:
+    // no need to stop when solution found, so always return false
 	virtual bool found(uint64_t const* _nonces, uint32_t _count) override
 	{
 //		dev::operator <<(std::cerr << "Found nonces: ", vector<uint64_t>(_nonces, _nonces + _count)) << std::endl;
 		for (uint32_t i = 0; i < _count; ++i)
-			if (m_owner->report(_nonces[i]))
-				return (m_aborted = true);
-		return m_owner->shouldStop();
+			m_owner->report(_nonces[i]);
+
+        return false;
 	}
 
 	virtual bool searched(uint64_t _startNonce, uint32_t _count) override
@@ -122,10 +123,10 @@ EthashGPUMiner::~EthashGPUMiner()
 bool EthashGPUMiner::report(uint64_t _nonce)
 {
 	Nonce n = (Nonce)(u64)_nonce;
-	EthashProofOfWork::Result r = EthashAux::eval(work().seedHash, work().headerHash, n);
-	if (r.value < work().boundary)
-		return submitProof(Solution{n, r.mixHash});
-	return false;
+    // solution validated in ethash_cl_miner
+	// EthashProofOfWork::Result r = EthashAux::eval(work().seedHash, work().headerHash, n);
+    // work().headerHash ignored in order to check for stale solution
+	return submitProof(Solution{n, work().headerHash});
 }
 
 void EthashGPUMiner::kickOff()
@@ -156,23 +157,6 @@ void EthashGPUMiner::workLoop()
 			m_miner = new ethash_cl_miner;
 
 			unsigned device = s_devices[index()] > -1 ? s_devices[index()] : index();
-
-			/*
-			EthashAux::FullType dag;
-			while (true)
-			{
-				if ((dag = EthashAux::full(w.seedHash, true)))
-					break;
-				if (shouldStop())
-				{
-					delete m_miner;
-					m_miner = nullptr;
-					return;
-				}
-				cnote << "Awaiting DAG";
-				this_thread::sleep_for(chrono::milliseconds(500));
-			}
-			*/
 
 			EthashAux::LightType light;
 			light = EthashAux::light(w.seedHash);

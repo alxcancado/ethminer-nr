@@ -215,19 +215,8 @@ private:
 	 */
 	bool submitProof(Solution const& _s, Miner* _m) override
 	{
-		if (m_onSolutionFound && m_onSolutionFound(_s))
-		{
-			if (x_minerWork.try_lock())
-			{
-				for (std::shared_ptr<Miner> const& m: m_miners)
-					if (m.get() != _m)
-						m->setWork();
-				m_work.reset();
-				x_minerWork.unlock();
-				return true;
-			}
-		}
-		return false;
+		assert (m_onSolutionFound);
+        return m_onSolutionFound(_s);
 	}
 
 	void resetTimer()
