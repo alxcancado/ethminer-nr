@@ -816,10 +816,10 @@ private:
 				return false;
 			});
 
+			bool resetProgress=true;
 			while (client.isRunning())
 			{
 				auto mp = f.miningProgress();
-				f.resetMiningProgress();
 				if (client.isConnected())
 				{
 					if (client.current())
@@ -832,6 +832,12 @@ private:
 					}
 				}
 				this_thread::sleep_for(chrono::milliseconds(m_farmRecheckPeriod));
+				if (resetProgress)
+				{
+					// reset progress on first loop itteration
+					resetProgress=false;
+					f.resetMiningProgress();
+				}
 			}
 	}
 #endif
