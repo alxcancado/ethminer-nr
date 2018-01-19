@@ -69,14 +69,14 @@ public:
 	}
 
 protected:
-    // no need to stop when solution found, so always return false
+	// no need to stop when solution found, so always return false
 	virtual bool found(uint64_t const* _nonces, uint32_t _count) override
 	{
 //		dev::operator <<(std::cerr << "Found nonces: ", vector<uint64_t>(_nonces, _nonces + _count)) << std::endl;
 		for (uint32_t i = 0; i < _count; ++i)
 			m_owner->report(_nonces[i]);
 
-        return false;
+		return false;
 	}
 
 	virtual bool searched(uint64_t _startNonce, uint32_t _count) override
@@ -123,9 +123,9 @@ EthashGPUMiner::~EthashGPUMiner()
 bool EthashGPUMiner::report(uint64_t _nonce)
 {
 	Nonce n = (Nonce)(u64)_nonce;
-    // solution validated in ethash_cl_miner
+	// solution validated in ethash_cl_miner
 	// EthashProofOfWork::Result r = EthashAux::eval(work().seedHash, work().headerHash, n);
-    // work().headerHash ignored in order to check for stale solution
+	// work().headerHash ignored in order to check for stale solution
 	return submitProof(Solution{n, work().headerHash});
 }
 
