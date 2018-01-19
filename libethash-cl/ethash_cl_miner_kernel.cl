@@ -234,24 +234,24 @@ typedef union {
 } compute_hash_share;
 
 __kernel void ethash_search(
-	__global volatile uint* restrict g_output,
+	__global volatile ulong* restrict g_output,
 	__constant hash32_t const* g_header,
 	__global hash128_t const* g_dag,
 	ulong start_nonce,
-	ulong target,
 	uint isolate
 	)
 {
 	__local compute_hash_share share[HASHES_PER_LOOP];
 
 	uint const gid = get_global_id(0);
+	ulong my_nonce = start_nonce + gid;
 
 	// Compute one init hash per work item.
 
 	// sha3_512(header .. nonce)
 	ulong state[25];
 	copy(state, g_header->ulongs, 4);
-	state[4] = start_nonce + gid;
+	state[4] = my_nonce;
 
 	for (uint i = 6; i != 25; ++i)
 	{
@@ -260,6 +260,8 @@ __kernel void ethash_search(
 	state[5] = 0x0000000000000001;
 	state[8] = 0x8000000000000000;
 
+	// let compiler optimize round
+	// keccak_f1600_round((uint2*)state, 0);
 	keccak_f1600_no_absorb((uint2*)state, 8, isolate);
 	
 	// Threads work together in this phase in groups of 8.
@@ -317,15 +319,15 @@ __kernel void ethash_search(
 	state[12] = 0x0000000000000001;
 	state[16] = 0x8000000000000000;
 
+	// let compiler optimize round
+	// keccak_f1600_round((uint2*)state, 0);
 	// keccak_256(keccak_512(header..nonce) .. mix);
 	keccak_f1600_no_absorb((uint2*)state, 1, isolate);
 
 	// if (as_ulong(as_uchar8(state[0]).s76543210) < target)
+	// report nonce if result < 4B
 	if (as_uint2(state[0]).s0 == 0)
-	{
-		uint slot = min(MAX_OUTPUTS, atomic_inc(&g_output[0]) + 1);
-		g_output[slot] = gid;
-	}
+		*g_output = my_nonce;
 }
 
 static void SHA3_512(uint2* s, uint isolate)
