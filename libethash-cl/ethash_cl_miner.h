@@ -19,7 +19,7 @@
 class ethash_cl_miner
 {
 private:
-	enum { c_maxSearchResults = 63, c_bufferCount = 2, c_hashBatchSize = 1024 };
+	enum { c_bufferCount = 2 };
 
 public:
 	struct search_hook
@@ -30,9 +30,6 @@ public:
 		virtual bool found(uint64_t const* nonces, uint32_t count) = 0;
 		virtual bool searched(uint64_t start_nonce, uint32_t count) = 0;
 	};
-
-	ethash_cl_miner();
-	~ethash_cl_miner();
 
 	static bool searchForAllDevices(unsigned _platformId, std::function<bool(cl::Device const&)> _callback);
 	static bool searchForAllDevices(std::function<bool(cl::Device const&)> _callback);
@@ -58,7 +55,6 @@ public:
 		unsigned _platformId,
 		unsigned _deviceId
 		);
-	void finish();
 	void search(uint8_t const* _header, uint64_t _target, search_hook& _hook, bool _ethStratum, uint64_t _startN);
 
 	/* -- default values -- */
@@ -72,8 +68,8 @@ private:
 	static std::vector<cl::Device> getDevices(std::vector<cl::Platform> const& _platforms, unsigned _platformId);
 	static std::vector<cl::Platform> getPlatforms();
 
+	std::array<cl::CommandQueue, c_bufferCount> m_queues;
 	cl::Context m_context;
-	cl::CommandQueue m_queue;
 	cl::Kernel m_searchKernel;
 	cl::Kernel m_dagKernel;
 	cl::Buffer m_dag;
@@ -81,7 +77,6 @@ private:
 	cl::Buffer m_header;
 	cl::Buffer m_searchBuffer[c_bufferCount];
 	unsigned m_globalWorkSize;
-	bool m_openclOnePointOne;
 
 	/// The local work size for the search
 	static unsigned s_workgroupSize;
